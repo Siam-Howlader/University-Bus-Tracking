@@ -4,7 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'modules/driver/driver_home.dart';
@@ -100,8 +101,9 @@ class _MapHome extends StatefulWidget {
 }
 
 class _MapHomeState extends State<_MapHome> {
-  final Completer<GoogleMapController> _controller = Completer();
-  CameraPosition? _initialCameraPosition;
+  final MapController _controller = MapController();
+  LatLng? _initialCenter;
+  double _zoom = 15;
   bool _loading = true;
 
   @override
@@ -119,10 +121,8 @@ class _MapHomeState extends State<_MapHome> {
 
     final position = await Geolocator.getCurrentPosition();
     setState(() {
-      _initialCameraPosition = CameraPosition(
-        target: LatLng(position.latitude, position.longitude),
-        zoom: 15,
-      );
+      _initialCenter = LatLng(position.latitude, position.longitude);
+      _zoom = 15;
       _loading = false;
     });
   }
@@ -142,15 +142,20 @@ class _MapHomeState extends State<_MapHome> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_initialCameraPosition == null) {
+    if (_initialCenter == null) {
       return const Center(child: Text('Location permission denied.'));
     }
 
-    return GoogleMap(
-      initialCameraPosition: _initialCameraPosition!,
-      myLocationEnabled: true,
-      myLocationButtonEnabled: true,
-      onMapCreated: (controller) => _controller.complete(controller),
+    return FlutterMap(
+      mapController: _controller,
+      options: MapOptions(center: _initialCenter, zoom: _zoom),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          subdomains: ['a', 'b', 'c'],
+          userAgentPackageName: 'com.example.university_bus_tracking',
+        ),
+      ],
     );
   }
 }

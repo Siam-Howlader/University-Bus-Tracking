@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../shared/services/location_service.dart';
@@ -17,8 +18,11 @@ class DriverHome extends StatefulWidget {
 class _DriverHomeState extends State<DriverHome> {
   bool _simulating = false;
   String _busId = 'bus_ku_01';
-  CameraPosition? _camera;
-  final Completer<GoogleMapController> _mapController = Completer();
+  LatLng? _center;
+  double _zoom = 15;
+  final MapController _mapController = MapController();
+  StreamSubscription<Position>? _liveSub;
+  bool _goingLive = false;
 
   @override
   void initState() {
@@ -31,10 +35,8 @@ class _DriverHomeState extends State<DriverHome> {
     if (!hasPermission) return;
     final position = await Geolocator.getCurrentPosition();
     setState(() {
-      _camera = CameraPosition(
-        target: LatLng(position.latitude, position.longitude),
-        zoom: 15,
-      );
+      _center = LatLng(position.latitude, position.longitude);
+      _zoom = 15;
     });
   }
 
@@ -65,10 +67,36 @@ class _DriverHomeState extends State<DriverHome> {
     setState(() => _simulating = true);
   }
 
+  Future<void> _toggleGoLive() async {
+    if (_goingLive) {
+      await _liveSub?.cancel();
+      setState(() => _goingLive = false);
+      return;
+    }
+
+    final hasPermission = await _ensureLocationPermission();
+    if (!hasPermission) return;
+
+    final loc = context.read<LocationService>();
+    _liveSub =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 15, // meters
+          ),
+        ).listen((position) {
+          loc.sendDriverLocation(
+            busId: _busId,
+            position: LatLng(position.latitude, position.longitude),
+          );
+        });
+    setState(() => _goingLive = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _camera == null
+      body: _center == null
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
@@ -98,18 +126,58 @@ class _DriverHomeState extends State<DriverHome> {
                         ),
                         label: Text(_simulating ? 'Stop' : 'Simulate'),
                       ),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        onPressed: _toggleGoLive,
+                        icon: Icon(
+                          _goingLive
+                              ? Icons.podcasts_rounded
+                              : Icons.podcasts_outlined,
+                        ),
+                        label: Text(_goingLive ? 'Live On' : 'Go Live'),
+                      ),
                     ],
                   ),
                 ),
                 Expanded(
-                  child: GoogleMap(
-                    initialCameraPosition: _camera!,
-                    myLocationEnabled: true,
-                    myLocationButtonEnabled: true,
-                    onMapCreated: (c) => _mapController.complete(c),
+                  child: FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(center: _center, zoom: _zoom),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        subdomains: ['a', 'b', 'c'],
+                        userAgentPackageName:
+                            'com.example.university_bus_tracking',
+                      ),
+                    ],
                   ),
                 ),
-                // TODO: Hook real GPS background updates for production drivers.
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _goingLive
+                            ? Icons.check_circle
+                            : Icons.radio_button_unchecked,
+                        color: _goingLive ? Colors.green : Colors.grey,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _goingLive
+                              ? 'Streaming real GPS to backend...'
+                              : 'Tap Go Live to stream real GPS updates.',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
     );
@@ -118,6 +186,7 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void dispose() {
     context.read<LocationService>().stopDriverSimulation();
+    _liveSub?.cancel();
     super.dispose();
   }
 }

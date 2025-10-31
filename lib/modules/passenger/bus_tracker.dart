@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../shared/services/location_service.dart';
@@ -15,11 +16,9 @@ class BusTracker extends StatefulWidget {
 }
 
 class _BusTrackerState extends State<BusTracker> {
-  final Completer<GoogleMapController> _controller = Completer();
-  CameraPosition _camera = const CameraPosition(
-    target: LatLng(22.8456, 89.5403),
-    zoom: 13,
-  ); // Khulna approx
+  final MapController _controller = MapController();
+  final LatLng _initialCenter = const LatLng(22.8456, 89.5403); // Khulna approx
+  double _zoom = 13;
   StreamSubscription<LatLng?>? _sub;
   LatLng? _busPosition;
 
@@ -43,30 +42,38 @@ class _BusTrackerState extends State<BusTracker> {
     _sub = service.listenToBusLocation(widget.busId).listen((pos) async {
       if (pos == null) return;
       setState(() => _busPosition = pos);
-      final controller = await _controller.future;
-      await controller.animateCamera(CameraUpdate.newLatLng(pos));
+      _controller.move(pos, _zoom);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final markers = <Marker>{};
+    final markers = <Marker>[];
     if (_busPosition != null) {
       markers.add(
         Marker(
-          markerId: MarkerId(widget.busId),
-          position: _busPosition!,
-          infoWindow: InfoWindow(title: 'Bus ${widget.busId}'),
+          point: _busPosition!,
+          width: 40,
+          height: 40,
+          child: const Icon(Icons.directions_bus, color: Colors.red, size: 32),
         ),
       );
     }
 
-    return GoogleMap(
-      initialCameraPosition: _camera,
-      markers: markers,
-      myLocationEnabled: true,
-      myLocationButtonEnabled: true,
-      onMapCreated: (c) => _controller.complete(c),
+    return FlutterMap(
+      mapController: _controller,
+      options: MapOptions(
+        center: _initialCenter,
+        zoom: _zoom,
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          subdomains: ['a', 'b', 'c'],
+          userAgentPackageName: 'com.example.university_bus_tracking',
+        ),
+        MarkerLayer(markers: markers),
+      ],
     );
   }
 

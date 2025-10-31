@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:latlong2/latlong.dart';
 
 /// Provides location update utilities for drivers and passengers.
 /// - Drivers: periodically send GPS location to Firestore at `/buses/{busId}`
@@ -19,11 +20,16 @@ class LocationService {
     required LatLng position,
     DateTime? timestamp,
   }) async {
+    final user = FirebaseAuth.instance.currentUser;
     final data = {
       'lat': position.latitude,
       'lng': position.longitude,
       'updatedAt': (timestamp ?? DateTime.now()).toUtc().millisecondsSinceEpoch,
-      // TODO: attach driverId/auth context after integrating Firebase Auth
+      if (user != null) ...{
+        'driverId': user.uid,
+        if (user.email != null) 'driverEmail': user.email,
+        if (user.displayName != null) 'driverName': user.displayName,
+      },
     };
     await _db.collection('buses').doc(busId).set(data, SetOptions(merge: true));
   }
